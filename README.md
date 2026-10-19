@@ -1,4 +1,4 @@
-# embedding-lab
+# embedding-retrieval-tradeoffs
 
 Which embedding choices matter for retrieval, measured on a real benchmark: pooling, similarity, approximate
 search, domain fine-tuning, vector size, and chunking.
