@@ -7,6 +7,7 @@ from pathlib import Path
 from metrics_from_scratch.stats.bootstrap import Bootstrap
 import numpy as np
 
+from embedding_lab.data.long_docs import LongDocRecipe
 from embedding_lab.data.nfcorpus import NFCorpus, Relevance
 from embedding_lab.encode.cache import EmbeddingCache
 from embedding_lab.encode.encoder import MINILM, MPNET, Encoder
@@ -14,6 +15,7 @@ from embedding_lab.encode.reduce import Reducer
 from embedding_lab.finetune.contrastive import (ContrastiveFineTune, false_negative_rate, query_document_ids,
                                                 query_document_pairs, title_abstract_pairs)
 from embedding_lab.retrieval.ann import FlatIndex, HNSWIndex, overlap_at_k, timed
+from embedding_lab.retrieval.chunking import auto_merging_chunks, fixed_chunks, merge_hits, sentence_windows
 from embedding_lab.retrieval.metrics import Ranked, mrr, ndcg_at_k, recall_at_k
 from embedding_lab.retrieval.search import ExactSearch
 
@@ -190,6 +192,57 @@ def _dims(args: argparse.Namespace) -> None:
     _save(args, "dims", {"rows": rows})
 
 
+def _chunks(args: argparse.Namespace) -> None:
+    long_docs = LongDocRecipe(queries=args.queries).build(*NFCorpus().load())
+    encoder, cache = Encoder(), EmbeddingCache()
+    query_vectors = cache.encode(encoder, "long-queries", long_docs.query_texts)
+    strategies = {
+        "fixed, 8 sentences": lambda i, doc: fixed_chunks(long_docs.ids[i], doc, 8),
+        "fixed, 32 sentences": lambda i, doc: fixed_chunks(long_docs.ids[i], doc, 32),
+        "sentence window +-3": lambda i, doc: sentence_windows(long_docs.ids[i], doc, 3),
+        "auto-merge 4 -> 16": lambda i, doc: auto_merging_chunks(long_docs.ids[i], doc, 4, 16),
+    }
+    total = sum(len(doc) for doc in long_docs.sentences)
+    print(f"{len(long_docs.ids)} long documents ({total / len(long_docs.ids):.0f} sentences each on average), one "
+          f"gold abstract hidden in each; top {args.k} returned spans per query")
+    print(f"  {'strategy':<22} {'chunks':>7} {'doc hit':>8} {'vs fixed 8, paired 95% CI':>27} "
+          f"{'gold covered':>13} {'sentences returned':>19}")
+    bootstrap = Bootstrap(n_resamples=1_000)
+    rows, baseline = [], None
+    for label, cut in strategies.items():
+        chunks = [chunk for i, doc in enumerate(long_docs.sentences) for chunk in cut(i, doc)]
+        vectors = cache.encode(encoder, "long-chunks", [chunk.embed_text for chunk in chunks])
+        scores = query_vectors @ vectors.T  # unit vectors: cosine
+        hit, covered, returned = [], [], []
+        for q, query_id in enumerate(long_docs.query_ids):
+            ranked = [chunks[i] for i in np.argsort(-scores[q])]
+            if label.startswith("auto-merge"):
+                spans = merge_hits(ranked[:4 * args.k], chunks)[:args.k]
+            else:
+                spans = [(c.doc_id, c.start, c.end) for c in ranked[:args.k]]
+            gold = long_docs.gold_doc[query_id]
+            start, end = long_docs.gold_spans[long_docs.ids.index(gold)]
+            length = len(long_docs.sentences[long_docs.ids.index(gold)])
+            got = {i for doc_id, a, b in spans if doc_id == gold for i in range(a, min(b, length))}
+            hit.append(any(doc_id == gold for doc_id, _, _ in spans))
+            covered.append(len(got & set(range(start, end))) / (end - start))
+            returned.append(sum(min(b, len(long_docs.sentences[long_docs.ids.index(d)])) - a for d, a, b in spans))
+        hit = np.array(hit, dtype=float)
+        row = {"strategy": label, "chunks": len(chunks), "hit": float(hit.mean()), "diff": None, "low": None,
+               "high": None, "covered": float(np.mean(covered)), "returned": float(np.mean(returned))}
+        if baseline is None:
+            baseline, shown = hit, "baseline"
+        else:
+            gap = bootstrap.interval(lambda b, h: float(np.mean(h - b)), baseline, hit)
+            row.update(diff=gap.estimate, low=gap.low, high=gap.high)
+            shown = f"{gap.estimate:+.3f} [{gap.low:+.3f}, {gap.high:+.3f}]"
+        rows.append(row)
+        print(f"  {label:<22} {len(chunks):>7} {row['hit']:>8.3f} {shown:>27} {row['covered']:>13.3f} "
+              f"{row['returned']:>19.1f}")
+    _save(args, "chunks", {"documents": len(long_docs.ids), "sentences_per_doc": total / len(long_docs.ids),
+                           "k": args.k, "rows": rows})
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="el", description=__doc__)
     parser.add_argument("--results-dir", type=Path, help="also save each command's numbers here as JSON")
@@ -222,6 +275,11 @@ def main(argv: list[str] | None = None) -> None:
     dims = commands.add_parser("dims", help="retrieval quality vs vector size: PCA vs truncation, 384 vs 768")
     dims.add_argument("--dims", type=int, nargs="+", default=[32, 64, 128, 256])
     dims.set_defaults(run=_dims)
+
+    chunks = commands.add_parser("chunks", help="fixed vs sentence-window vs auto-merging chunks on long documents")
+    chunks.add_argument("--queries", type=int, default=100)
+    chunks.add_argument("-k", type=int, default=3, help="spans returned per query")
+    chunks.set_defaults(run=_chunks)
 
     args = parser.parse_args(argv)
     args.run(args)
