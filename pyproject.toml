@@ -1,0 +1,27 @@
+[project]
+name = "embedding-lab"
+version = "0.1.0"
+description = "Embedding retrieval choices measured: pooling, similarity, ANN, domain-shift fine-tuning, and chunking."
+readme = "README.md"
+authors = [{ name = "Bhavya Sharma" }]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.4",
+    "metrics-from-scratch @ git+https://github.com/bhavya94/metrics-from-scratch",
+    "sentence-transformers>=3",
+    "faiss-cpu>=1.15.1",
+    "datasets>=5.1.0",
+    "scikit-learn>=1.9.1",
+]
+
+[project.scripts]
+el = "embedding_lab.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
