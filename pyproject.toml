@@ -7,11 +7,12 @@ authors = [{ name = "Bhavya Sharma" }]
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5.4",
-    "metrics-from-scratch @ git+https://github.com/bhavya94/metrics-from-scratch",
+    "metrics-from-scratch @ git+https://github.com/bhavya94/metrics-from-scratch@9b14c54c93a574a1b5596b4bd98bd59854ef5bd0",
     "sentence-transformers>=3",
     "faiss-cpu>=1.15.1",
     "datasets>=5.1.0",
     "scikit-learn>=1.9.1",
+    "accelerate>=1.1.0",
 ]
 
 [project.scripts]

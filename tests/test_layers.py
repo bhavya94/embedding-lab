@@ -8,6 +8,7 @@ BELOW = {
     "data": set(),
     "encode": set(),
     "retrieval": {"data"},
+    "finetune": {"data", "encode"},
 }
 
 

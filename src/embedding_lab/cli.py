@@ -4,11 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
+from metrics_from_scratch.stats.bootstrap import Bootstrap
 import numpy as np
 
 from embedding_lab.data.nfcorpus import NFCorpus, Relevance
 from embedding_lab.encode.cache import EmbeddingCache
 from embedding_lab.encode.encoder import MINILM, Encoder
+from embedding_lab.finetune.contrastive import (ContrastiveFineTune, false_negative_rate, query_document_ids,
+                                                query_document_pairs, title_abstract_pairs)
 from embedding_lab.retrieval.ann import FlatIndex, HNSWIndex, overlap_at_k, timed
 from embedding_lab.retrieval.metrics import Ranked, mrr, ndcg_at_k, recall_at_k
 from embedding_lab.retrieval.search import ExactSearch
@@ -111,6 +114,56 @@ def _ann(args: argparse.Namespace) -> None:
     _save(args, "ann", {"real_docs": len(real), "rows": results})
 
 
+def _finetune(args: argparse.Namespace) -> None:
+    corpus, queries, relevance = NFCorpus().load()
+    _, train_queries, train_relevance = NFCorpus(split="train").load()
+
+    def query_pairs(seed: int) -> list[tuple[str, str]]:
+        # NFCorpus repeats a few question texts across splits; train on none of the test texts.
+        return query_document_ids(train_queries, train_relevance, seed=seed, exclude_texts=frozenset(queries.texts))
+
+    runs = {"title -> abstract": ("nfcorpus-titles", lambda seed: title_abstract_pairs(corpus)),
+            "train queries": ("nfcorpus-train-queries",
+                              lambda seed: query_document_pairs(corpus, train_queries, query_pairs(seed)))}
+    print(f"MiniLM before and after {args.epochs} epoch(s) of contrastive training, {len(args.seeds)} seeds per run; "
+          f"scored on the {len(queries)} test queries, whose texts no training run sees")
+    before_ranked, _ = _search(Encoder(), "cosine")
+    before = {"ndcg@10": ndcg_at_k(before_ranked, relevance, 10),
+              "recall@100": recall_at_k(before_ranked, relevance, 100)}
+    labeled = ~np.isnan(before["ndcg@10"])
+    rows = [{"setting": "no fine-tune", **_metrics(before_ranked, relevance)}]
+    gains = []
+    bootstrap = Bootstrap(n_resamples=args.resamples, seed=0)
+    for label, (name, make_pairs) in runs.items():
+        per_seed = {"ndcg@10": [], "recall@100": [], "mrr": []}
+        for seed in args.seeds:
+            path = ContrastiveFineTune(name, epochs=args.epochs, seed=seed).run(make_pairs(seed))
+            ranked, _ = _search(Encoder(model_name=str(path)), "cosine")
+            per_seed["ndcg@10"].append(ndcg_at_k(ranked, relevance, 10))
+            per_seed["recall@100"].append(recall_at_k(ranked, relevance, 100))
+            per_seed["mrr"].append(mrr(ranked, relevance))
+        # Average each query's score over the seeds, so the interval reflects queries, not one lucky run.
+        after = {metric: np.mean(values, axis=0) for metric, values in per_seed.items()}
+        rows.append({"setting": label, **{metric: float(np.nanmean(v)) for metric, v in after.items()}})
+        for metric in ["ndcg@10", "recall@100"]:
+            gap = bootstrap.interval(lambda b, a: float(np.mean(a - b)), before[metric][labeled],
+                                     after[metric][labeled])
+            gains.append({"setting": label, "metric": metric, "estimate": gap.estimate, "low": gap.low,
+                          "high": gap.high,
+                          "per_seed": [float(np.nanmean(v - before[metric])) for v in per_seed[metric]]})
+    print(HEADER)
+    for row in rows:
+        print(_row(row["setting"], row))
+    print("gain over no fine-tune, seed-averaged per query, paired 95% bootstrap CI")
+    for gain in gains:
+        seeds = ", ".join(f"{value:+.4f}" for value in gain["per_seed"])
+        print(f"  {gain['setting']:<18} {gain['metric']:<10} {gain['estimate']:+.4f} [{gain['low']:+.4f}, "
+              f"{gain['high']:+.4f}]  per seed: {seeds}")
+    rate = false_negative_rate(query_pairs(args.seeds[0]), train_relevance, seed=args.seeds[0])
+    print(f"train-query batches of 32: {rate:.0%} of queries have a labeled-relevant doc among their negatives")
+    _save(args, "finetune", {"seeds": args.seeds, "rows": rows, "gains": gains, "false_negative_rate": rate})
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="el", description=__doc__)
     parser.add_argument("--results-dir", type=Path, help="also save each command's numbers here as JSON")
@@ -133,6 +186,12 @@ def main(argv: list[str] | None = None) -> None:
     ann.add_argument("--ef-search", type=int, nargs="+", default=[16, 64, 256])
     ann.add_argument("--seed", type=int, default=0)
     ann.set_defaults(run=_ann)
+
+    finetune = commands.add_parser("finetune", help="NDCG before and after an unsupervised in-domain fine-tune")
+    finetune.add_argument("--epochs", type=int, default=1)
+    finetune.add_argument("--resamples", type=int, default=2_000)
+    finetune.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
+    finetune.set_defaults(run=_finetune)
 
     args = parser.parse_args(argv)
     args.run(args)
