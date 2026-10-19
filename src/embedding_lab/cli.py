@@ -9,7 +9,8 @@ import numpy as np
 
 from embedding_lab.data.nfcorpus import NFCorpus, Relevance
 from embedding_lab.encode.cache import EmbeddingCache
-from embedding_lab.encode.encoder import MINILM, Encoder
+from embedding_lab.encode.encoder import MINILM, MPNET, Encoder
+from embedding_lab.encode.reduce import Reducer
 from embedding_lab.finetune.contrastive import (ContrastiveFineTune, false_negative_rate, query_document_ids,
                                                 query_document_pairs, title_abstract_pairs)
 from embedding_lab.retrieval.ann import FlatIndex, HNSWIndex, overlap_at_k, timed
@@ -164,6 +165,31 @@ def _finetune(args: argparse.Namespace) -> None:
     _save(args, "finetune", {"seeds": args.seeds, "rows": rows, "gains": gains, "false_negative_rate": rate})
 
 
+def _dims(args: argparse.Namespace) -> None:
+    corpus, queries, relevance = NFCorpus().load()
+    cache = EmbeddingCache()
+    print("NDCG@10 on NFCorpus test as vectors shrink; SVD and PCA are fit on the corpus vectors only")
+    print(f"  {'model':<10} {'dims':>5} {'method':<9} {'NDCG@10':>8} {'bytes/doc':>10}")
+    rows = []
+    for name, model in [("MiniLM", MINILM), ("mpnet", MPNET)]:
+        encoder = Encoder(model_name=model)
+        docs = cache.encode(encoder, "nfcorpus-corpus", corpus.passages())
+        query_vectors = cache.encode(encoder, "nfcorpus-queries", queries.texts)
+        full = docs.shape[1]
+        for dims in [d for d in args.dims if d < full] + [full]:
+            for method in (["svd", "pca", "truncate"] if dims < full else ["full", "pca"]):
+                if method == "full":
+                    d, q = docs, query_vectors
+                else:
+                    reducer = Reducer(dims, method).fit(docs)
+                    d, q = reducer.transform(docs), reducer.transform(query_vectors)
+                ranked = ExactSearch(corpus.ids, d).search(queries.ids, q, 10)
+                rows.append({"model": name, "dims": dims, "method": method,
+                             "ndcg@10": float(np.nanmean(ndcg_at_k(ranked, relevance, 10))), "bytes": 4 * dims})
+                print(f"  {name:<10} {dims:>5} {method:<9} {rows[-1]['ndcg@10']:>8.4f} {4 * dims:>10}")
+    _save(args, "dims", {"rows": rows})
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="el", description=__doc__)
     parser.add_argument("--results-dir", type=Path, help="also save each command's numbers here as JSON")
@@ -192,6 +218,10 @@ def main(argv: list[str] | None = None) -> None:
     finetune.add_argument("--resamples", type=int, default=2_000)
     finetune.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     finetune.set_defaults(run=_finetune)
+
+    dims = commands.add_parser("dims", help="retrieval quality vs vector size: PCA vs truncation, 384 vs 768")
+    dims.add_argument("--dims", type=int, nargs="+", default=[32, 64, 128, 256])
+    dims.set_defaults(run=_dims)
 
     args = parser.parse_args(argv)
     args.run(args)
