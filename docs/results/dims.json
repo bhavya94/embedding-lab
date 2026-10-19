@@ -1,0 +1,200 @@
+{
+ "rows": [
+  {
+   "model": "MiniLM",
+   "dims": 32,
+   "method": "svd",
+   "ndcg@10": 0.1933755044088129,
+   "bytes": 128
+  },
+  {
+   "model": "MiniLM",
+   "dims": 32,
+   "method": "pca",
+   "ndcg@10": 0.17095782032309229,
+   "bytes": 128
+  },
+  {
+   "model": "MiniLM",
+   "dims": 32,
+   "method": "truncate",
+   "ndcg@10": 0.13676809350285732,
+   "bytes": 128
+  },
+  {
+   "model": "MiniLM",
+   "dims": 64,
+   "method": "svd",
+   "ndcg@10": 0.27120639054141826,
+   "bytes": 256
+  },
+  {
+   "model": "MiniLM",
+   "dims": 64,
+   "method": "pca",
+   "ndcg@10": 0.23758612268413629,
+   "bytes": 256
+  },
+  {
+   "model": "MiniLM",
+   "dims": 64,
+   "method": "truncate",
+   "ndcg@10": 0.21241196175435545,
+   "bytes": 256
+  },
+  {
+   "model": "MiniLM",
+   "dims": 128,
+   "method": "svd",
+   "ndcg@10": 0.30199687547181964,
+   "bytes": 512
+  },
+  {
+   "model": "MiniLM",
+   "dims": 128,
+   "method": "pca",
+   "ndcg@10": 0.26944505288049164,
+   "bytes": 512
+  },
+  {
+   "model": "MiniLM",
+   "dims": 128,
+   "method": "truncate",
+   "ndcg@10": 0.27408606571322613,
+   "bytes": 512
+  },
+  {
+   "model": "MiniLM",
+   "dims": 256,
+   "method": "svd",
+   "ndcg@10": 0.316596390429615,
+   "bytes": 1024
+  },
+  {
+   "model": "MiniLM",
+   "dims": 256,
+   "method": "pca",
+   "ndcg@10": 0.29055467880769725,
+   "bytes": 1024
+  },
+  {
+   "model": "MiniLM",
+   "dims": 256,
+   "method": "truncate",
+   "ndcg@10": 0.3043827480145165,
+   "bytes": 1024
+  },
+  {
+   "model": "MiniLM",
+   "dims": 384,
+   "method": "full",
+   "ndcg@10": 0.3186323138836697,
+   "bytes": 1536
+  },
+  {
+   "model": "MiniLM",
+   "dims": 384,
+   "method": "pca",
+   "ndcg@10": 0.29163336082028446,
+   "bytes": 1536
+  },
+  {
+   "model": "mpnet",
+   "dims": 32,
+   "method": "svd",
+   "ndcg@10": 0.22086058306402362,
+   "bytes": 128
+  },
+  {
+   "model": "mpnet",
+   "dims": 32,
+   "method": "pca",
+   "ndcg@10": 0.1871316296354437,
+   "bytes": 128
+  },
+  {
+   "model": "mpnet",
+   "dims": 32,
+   "method": "truncate",
+   "ndcg@10": 0.16028294926300432,
+   "bytes": 128
+  },
+  {
+   "model": "mpnet",
+   "dims": 64,
+   "method": "svd",
+   "ndcg@10": 0.2806091781132829,
+   "bytes": 256
+  },
+  {
+   "model": "mpnet",
+   "dims": 64,
+   "method": "pca",
+   "ndcg@10": 0.24302137747274005,
+   "bytes": 256
+  },
+  {
+   "model": "mpnet",
+   "dims": 64,
+   "method": "truncate",
+   "ndcg@10": 0.21625350639744564,
+   "bytes": 256
+  },
+  {
+   "model": "mpnet",
+   "dims": 128,
+   "method": "svd",
+   "ndcg@10": 0.31700127190658794,
+   "bytes": 512
+  },
+  {
+   "model": "mpnet",
+   "dims": 128,
+   "method": "pca",
+   "ndcg@10": 0.28216827217447626,
+   "bytes": 512
+  },
+  {
+   "model": "mpnet",
+   "dims": 128,
+   "method": "truncate",
+   "ndcg@10": 0.2822307876145951,
+   "bytes": 512
+  },
+  {
+   "model": "mpnet",
+   "dims": 256,
+   "method": "svd",
+   "ndcg@10": 0.33514260831271164,
+   "bytes": 1024
+  },
+  {
+   "model": "mpnet",
+   "dims": 256,
+   "method": "pca",
+   "ndcg@10": 0.30267875161381086,
+   "bytes": 1024
+  },
+  {
+   "model": "mpnet",
+   "dims": 256,
+   "method": "truncate",
+   "ndcg@10": 0.31521787370905346,
+   "bytes": 1024
+  },
+  {
+   "model": "mpnet",
+   "dims": 768,
+   "method": "full",
+   "ndcg@10": 0.3352110127165215,
+   "bytes": 3072
+  },
+  {
+   "model": "mpnet",
+   "dims": 768,
+   "method": "pca",
+   "ndcg@10": 0.3085560873962998,
+   "bytes": 3072
+  }
+ ]
+}

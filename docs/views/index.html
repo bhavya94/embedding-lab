@@ -1,11 +1,11 @@
 <meta charset="utf-8">
-<title>Embedding Lab</title>
+<title>Embedding Retrieval Lab</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;650&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: one reading column; each metric is a numbered PR section with a claim, a chart, and the command that reproduces it. */
+/* Layout: one reading column; a pipeline strip explains retrieval, then each experiment is a card with a claim, a chart, and its command. */
 :root {
   --bg: #f4f6f8; --surface: #ffffff; --fg: #17202b; --muted: #5a6573; --rule: #d6dce3; --grid: #e8ecf0;
   --accent: #1f5fbf; --s0: #0072b2; --s1: #d55e00; --s2: #009e73; --s3: #cc79a7; --bad: #b4232f; --good: #1a7f4b;
@@ -77,18 +77,98 @@ input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offs
 .stat .v { font: 600 18px var(--mono); }
 .stat .v small { font-weight: 400; color: var(--muted); font-size: 13px; }
 @media (max-width: 480px) { section { padding: 16px; } .matrix td { width: 76px; } }
+.pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; }
+.step { border: 1px solid var(--rule); border-radius: 6px; padding: 12px; background: var(--surface); display: grid; gap: 4px; min-width: 0; }
+.step b { font-family: var(--display); font-size: 15px; }
+.step span { font-size: 13px; color: var(--muted); }
+.step .knob { font: 600 11px var(--mono); color: var(--accent); letter-spacing: 0.04em; text-transform: uppercase; }
+.note { font-size: 14px; color: var(--muted); }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.keys .dash { display: inline-block; width: 18px; border-top: 2px dashed currentColor; margin-right: 6px; vertical-align: middle; }
+svg text.inbar { fill: #ffffff; font-weight: 600; }
 </style>
 
 <main>
   <header>
     <div class="eyebrow">embedding-lab</div>
-    <h1>Embedding Lab</h1>
-    <p class="lede">Embedding retrieval choices measured: pooling, similarity, ANN, domain-shift fine-tuning, and chunking.</p>
+    <h1>What each embedding choice buys on a real retrieval task</h1>
+    <p class="lede">NFCorpus: 3,633 medical abstracts and 323 test questions with graded relevance labels. Each card changes
+      one choice in the retrieval pipeline and measures it. Every number comes from the command under its chart.</p>
   </header>
+
+  <section id="pipeline">
+    <div class="eyebrow">how retrieval works</div>
+    <h2>Text becomes a vector, the closest vectors win</h2>
+    <div class="pipeline">
+      <div class="step"><span class="knob">chunking</span><b>Cut the text</b><span>Long documents are split into passages; what you embed is not always what you return.</span></div>
+      <div class="step"><span class="knob">model</span><b>Encode tokens</b><span>A transformer turns each token into a vector that depends on its neighbours.</span></div>
+      <div class="step"><span class="knob">pooling</span><b>One vector per text</b><span>Average the token vectors (mean) or keep the first one (CLS).</span></div>
+      <div class="step"><span class="knob">dimensions</span><b>Normalize, maybe shrink</b><span>Unit length makes dot product equal cosine; PCA or cutting saves memory.</span></div>
+      <div class="step"><span class="knob">index</span><b>Find the nearest</b><span>Exact search compares with every vector; HNSW walks a graph and skips most.</span></div>
+      <div class="step"><span class="knob">metric</span><b>Score the ranking</b><span>NDCG@10 rewards relevant documents near the top, more for highly relevant ones.</span></div>
+    </div>
+  </section>
+
+  <section id="pooling">
+    <div class="eyebrow">pooling and similarity</div>
+    <h2>Use the pooling and similarity the model was trained with</h2>
+    <p>MiniLM was trained with mean pooling and cosine similarity. Taking the CLS vector instead costs 0.025 NDCG@10, and
+      ranking raw vectors by dot product costs 0.031.</p>
+    <div id="pool-chart"></div>
+    <div class="cmd">uv run el pooling &amp;&amp; uv run el similarity</div>
+  </section>
+
+  <section id="ann">
+    <div class="eyebrow">approximate search</div>
+    <h2>HNSW gets faster than exact search as the corpus grows, and gives up some recall</h2>
+    <p>Exact search time grows with the corpus. HNSW stays near a millisecond, at the cost of missing some of the true top 10.
+      <code>ef</code> sets how hard each query searches. Beyond 3,633 documents the corpus is padded with random vectors, not
+      real documents, so the overlap there may differ on real data.</p>
+    <div class="row">
+      <div><div class="panel-title">Query time as the corpus grows (log scale)</div><div id="ann-time"></div></div>
+      <div><div class="panel-title">Recall of the exact top 10 against query time</div><div id="ann-tradeoff"></div></div>
+    </div>
+    <div class="cmd">uv run el ann</div>
+  </section>
+
+  <section id="finetune">
+    <div class="eyebrow">domain fine-tuning</div>
+    <h2>Fine-tuning on this domain did not move the scores beyond noise</h2>
+    <p>Two kinds of contrastive training, 3 seeds each, scored on test questions whose texts no run saw. Every interval
+      includes zero. Title-to-abstract pairs teach MiniLM nothing new; its training data already holds such pairs. The
+      train-question runs lowered NDCG@10 and raised Recall@100 in every seed, but by less than the noise. A one-seed run
+      had shown a "significant" drop that more seeds erased.</p>
+    <div class="row">
+      <div><div class="panel-title">Change against no fine-tune, averaged over seeds, paired 95% CI</div><div id="ft-gain"></div></div>
+      <div><div class="panel-title">Scores after each run</div><div class="scroll"><table class="legend" id="ft-table"></table></div>
+        <p class="note" id="ft-note"></p></div>
+    </div>
+    <div class="cmd">uv run el finetune</div>
+  </section>
+
+  <section id="dims">
+    <div class="eyebrow">vector size</div>
+    <h2>Projecting onto the corpus's main directions keeps almost all quality at a third of the size</h2>
+    <p>Fewer dimensions mean less memory and faster search. Cutting keeps a vector's first coordinates. SVD projects onto the
+      directions that carry most of the corpus's vectors. PCA does the same after subtracting the corpus mean, and that shift
+      alone costs quality: with all 384 dimensions kept, PCA scores 0.2916 against 0.3186.</p>
+    <div id="dims-chart"></div>
+    <div class="cmd">uv run el dims</div>
+  </section>
+
+  <section id="chunks">
+    <div class="eyebrow">chunking</div>
+    <h2>Small chunks find more, and auto-merging does it with the least text</h2>
+    <p>Each long document hides one gold abstract among nine unrelated ones. Each strategy is compared with fixed 8-sentence
+      chunks on the same 100 questions. Big 32-sentence chunks blur the match. Auto-merging finds more while returning fewer
+      sentences.</p>
+    <div id="chunk-chart"></div>
+    <div class="cmd">uv run el chunks</div>
+  </section>
 </main>
 
 <script>
-const DATA = {};
+const DATA = {"pooling": {"model": "sentence-transformers/all-MiniLM-L6-v2", "rows": [{"setting": "mean pooling", "ndcg@10": 0.3186323138836697, "recall@100": 0.3148117327244191, "mrr": 0.5157522451385718}, {"setting": "cls pooling", "ndcg@10": 0.29379822349675944, "recall@100": 0.28897510901763723, "mrr": 0.47570077444483955}]}, "similarity": {"model": "sentence-transformers/all-MiniLM-L6-v2", "rows": [{"setting": "cosine similarity", "ndcg@10": 0.3186323138836697, "recall@100": 0.3148117327244191, "mrr": 0.5157522451385718}, {"setting": "dot similarity", "ndcg@10": 0.28800763034959537, "recall@100": 0.2977923397665052, "mrr": 0.4904522364047473}]}, "ann": {"real_docs": 3633, "rows": [{"docs": 3633, "index": "flat (exact)", "build_s": 0.001627333927899599, "ms_per_query": 0.10904476432931312, "overlap": 1.0, "ndcg@10": 0.31794488366014906}, {"docs": 3633, "index": "HNSW ef=16", "build_s": 0.3938092919997871, "ms_per_query": 0.016475492084958236, "overlap": 0.8832817337461303, "ndcg@10": 0.30263446481323714}, {"docs": 3633, "index": "HNSW ef=64", "build_s": 0.3938092919997871, "ms_per_query": 0.048885448481137905, "overlap": 0.9758513931888545, "ndcg@10": 0.3162889260040664}, {"docs": 3633, "index": "HNSW ef=256", "build_s": 0.3938092919997871, "ms_per_query": 0.17227837743796984, "overlap": 0.9990712074303407, "ndcg@10": 0.3181672741665288}, {"docs": 50000, "index": "flat (exact)", "build_s": 0.01848125015385449, "ms_per_query": 1.540149637748813, "overlap": 1.0, "ndcg@10": null}, {"docs": 50000, "index": "HNSW ef=16", "build_s": 57.595148666063324, "ms_per_query": 0.06558810542380847, "overlap": 0.7950464396284829, "ndcg@10": null}, {"docs": 50000, "index": "HNSW ef=64", "build_s": 57.595148666063324, "ms_per_query": 0.1845940401137521, "overlap": 0.9040247678018576, "ndcg@10": null}, {"docs": 50000, "index": "HNSW ef=256", "build_s": 57.595148666063324, "ms_per_query": 0.6808307527884518, "overlap": 0.9653250773993809, "ndcg@10": null}, {"docs": 200000, "index": "flat (exact)", "build_s": 0.031079791020601988, "ms_per_query": 6.1400423126277905, "overlap": 1.0, "ndcg@10": null}, {"docs": 200000, "index": "HNSW ef=16", "build_s": 331.6045988330152, "ms_per_query": 0.10348864666679326, "overlap": 0.7448916408668731, "ndcg@10": null}, {"docs": 200000, "index": "HNSW ef=64", "build_s": 331.6045988330152, "ms_per_query": 0.2806673126277909, "overlap": 0.8650154798761611, "ndcg@10": null}, {"docs": 200000, "index": "HNSW ef=256", "build_s": 331.6045988330152, "ms_per_query": 0.9420447645495551, "overlap": 0.9210526315789473, "ndcg@10": null}]}, "finetune": {"seeds": [0, 1, 2], "rows": [{"setting": "no fine-tune", "ndcg@10": 0.3186323138836697, "recall@100": 0.3148117327244191, "mrr": 0.5157522451385718}, {"setting": "title -> abstract", "ndcg@10": 0.3151609280442588, "recall@100": 0.3122273300207763, "mrr": 0.5162955780374342}, {"setting": "train queries", "ndcg@10": 0.313054020773203, "recall@100": 0.32380066686166553, "mrr": 0.5055387819239276}], "gains": [{"setting": "title -> abstract", "metric": "ndcg@10", "estimate": -0.0034713858394109097, "low": -0.009380866854593243, "high": 0.0021386197944566372, "per_seed": [-0.0038529266192681637, -0.003993457319035187, -0.002567773579929385]}, {"setting": "title -> abstract", "metric": "recall@100", "estimate": -0.0025844027036428254, "low": -0.012613604958533593, "high": 0.006161761484160397, "per_seed": [-0.0013030405503813235, -0.0033067747290138182, -0.0031433928315333357]}, {"setting": "train queries", "metric": "ndcg@10", "estimate": -0.005578293110466757, "low": -0.017021333164422066, "high": 0.005912095179792076, "per_seed": [-0.0049834345528881625, -0.007409302389947527, -0.004342142388564585]}, {"setting": "train queries", "metric": "recall@100", "estimate": 0.008988934137246407, "low": -0.005530606123079574, "high": 0.021067198481580937, "per_seed": [0.014105679348845553, 0.005020893019052901, 0.007840230043840763]}], "false_negative_rate": 0.30572916666666666}, "dims": {"rows": [{"model": "MiniLM", "dims": 32, "method": "svd", "ndcg@10": 0.1933755044088129, "bytes": 128}, {"model": "MiniLM", "dims": 32, "method": "pca", "ndcg@10": 0.17095782032309229, "bytes": 128}, {"model": "MiniLM", "dims": 32, "method": "truncate", "ndcg@10": 0.13676809350285732, "bytes": 128}, {"model": "MiniLM", "dims": 64, "method": "svd", "ndcg@10": 0.27120639054141826, "bytes": 256}, {"model": "MiniLM", "dims": 64, "method": "pca", "ndcg@10": 0.23758612268413629, "bytes": 256}, {"model": "MiniLM", "dims": 64, "method": "truncate", "ndcg@10": 0.21241196175435545, "bytes": 256}, {"model": "MiniLM", "dims": 128, "method": "svd", "ndcg@10": 0.30199687547181964, "bytes": 512}, {"model": "MiniLM", "dims": 128, "method": "pca", "ndcg@10": 0.26944505288049164, "bytes": 512}, {"model": "MiniLM", "dims": 128, "method": "truncate", "ndcg@10": 0.27408606571322613, "bytes": 512}, {"model": "MiniLM", "dims": 256, "method": "svd", "ndcg@10": 0.316596390429615, "bytes": 1024}, {"model": "MiniLM", "dims": 256, "method": "pca", "ndcg@10": 0.29055467880769725, "bytes": 1024}, {"model": "MiniLM", "dims": 256, "method": "truncate", "ndcg@10": 0.3043827480145165, "bytes": 1024}, {"model": "MiniLM", "dims": 384, "method": "full", "ndcg@10": 0.3186323138836697, "bytes": 1536}, {"model": "MiniLM", "dims": 384, "method": "pca", "ndcg@10": 0.29163336082028446, "bytes": 1536}, {"model": "mpnet", "dims": 32, "method": "svd", "ndcg@10": 0.22086058306402362, "bytes": 128}, {"model": "mpnet", "dims": 32, "method": "pca", "ndcg@10": 0.1871316296354437, "bytes": 128}, {"model": "mpnet", "dims": 32, "method": "truncate", "ndcg@10": 0.16028294926300432, "bytes": 128}, {"model": "mpnet", "dims": 64, "method": "svd", "ndcg@10": 0.2806091781132829, "bytes": 256}, {"model": "mpnet", "dims": 64, "method": "pca", "ndcg@10": 0.24302137747274005, "bytes": 256}, {"model": "mpnet", "dims": 64, "method": "truncate", "ndcg@10": 0.21625350639744564, "bytes": 256}, {"model": "mpnet", "dims": 128, "method": "svd", "ndcg@10": 0.31700127190658794, "bytes": 512}, {"model": "mpnet", "dims": 128, "method": "pca", "ndcg@10": 0.28216827217447626, "bytes": 512}, {"model": "mpnet", "dims": 128, "method": "truncate", "ndcg@10": 0.2822307876145951, "bytes": 512}, {"model": "mpnet", "dims": 256, "method": "svd", "ndcg@10": 0.33514260831271164, "bytes": 1024}, {"model": "mpnet", "dims": 256, "method": "pca", "ndcg@10": 0.30267875161381086, "bytes": 1024}, {"model": "mpnet", "dims": 256, "method": "truncate", "ndcg@10": 0.31521787370905346, "bytes": 1024}, {"model": "mpnet", "dims": 768, "method": "full", "ndcg@10": 0.3352110127165215, "bytes": 3072}, {"model": "mpnet", "dims": 768, "method": "pca", "ndcg@10": 0.3085560873962998, "bytes": 3072}]}, "chunks": {"documents": 100, "sentences_per_doc": 110.5, "k": 3, "rows": [{"strategy": "fixed, 8 sentences", "chunks": 1424, "hit": 0.31, "diff": null, "low": null, "high": null, "covered": 0.22388141098667413, "returned": 23.0}, {"strategy": "fixed, 32 sentences", "chunks": 394, "hit": 0.16, "diff": -0.15, "low": -0.23, "high": -0.08, "covered": 0.11280309967809968, "returned": 80.93}, {"strategy": "sentence window +-3", "chunks": 11050, "hit": 0.39, "diff": 0.08, "low": 0.0, "high": 0.16, "covered": 0.2453000391421444, "returned": 20.5}, {"strategy": "auto-merge 4 -> 16", "chunks": 2799, "hit": 0.38, "diff": 0.07, "low": 0.01, "high": 0.14, "covered": 0.2200053104789947, "returned": 14.39}]}};
 const NS = "http://www.w3.org/2000/svg";
 const pct = v => (v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0) + "%";
 const f2 = v => v.toFixed(2), f3 = v => v.toFixed(3), f4 = v => v.toFixed(4);
@@ -128,8 +208,126 @@ const label = (f, x, y, text, anchor = "start", cls = "") =>
   Object.assign(el("text", { x, y, "text-anchor": anchor, class: cls }, f.svg), { textContent: text });
 const ticks = (lo, hi, step) => Array.from({ length: Math.round((hi - lo) / step) + 1 }, (_, i) => +(lo + i * step).toFixed(6));
 
+const CLS = ["s0", "s1", "s2", "s3"];
+
+// A row of colour keys under a chart: [label, class, dashed?].
+function keys(host, items) {
+  const row = document.createElement("div");
+  row.className = "keys";
+  row.innerHTML = items.map(([text, cls, dashed]) => dashed
+    ? `<span style="color:var(--${cls})"><span class="dash"></span>${text}</span>`
+    : `<span><span class="swatch" style="background:var(--${cls})"></span>${text}</span>`).join("");
+  host.appendChild(row);
+}
+
+function drawPooling() {
+  const rows = [...DATA.pooling.rows, ...DATA.similarity.rows];
+  const h = 30 + rows.length * 38;
+  const f = frame(document.getElementById("pool-chart"), { w: 880, h, x: { min: 0, max: 0.35, ticks: ticks(0, 0.35, 0.05), fmt: f2 },
+    y: { min: 0, max: rows.length, ticks: [] }, xlabel: "NDCG@10" });
+  rows.forEach((r, i) => {
+    const yy = f.Y(rows.length - i - 0.5);
+    el("rect", { x: f.X(0), y: yy - 11, width: f.X(r["ndcg@10"]) - f.X(0), height: 22, class: i % 2 ? "s1" : "s0" }, f.svg);
+    label(f, f.X(0) + 8, yy + 4, `${r.setting}  ${f4(r["ndcg@10"])}`, "start", "inbar");
+  });
+}
+
+function drawAnn() {
+  const rows = DATA.ann.rows;
+  const sizes = [...new Set(rows.map(r => r.docs))];
+  const indexes = [...new Set(rows.map(r => r.index))];
+  const log = Math.log10;
+  const maxMs = Math.max(...rows.map(r => r.ms_per_query));
+  const time = frame(document.getElementById("ann-time"), {
+    x: { min: log(sizes[0]) - 0.1, max: log(sizes[sizes.length - 1]) + 0.1, ticks: sizes.map(log), fmt: v => Math.round(10 ** v).toLocaleString() },
+    y: { min: 0, max: Math.ceil(maxMs), ticks: ticks(0, Math.ceil(maxMs), Math.ceil(maxMs) / 4), fmt: v => v + " ms" },
+    xlabel: "documents" });
+  indexes.forEach((name, i) => {
+    const pts = rows.filter(r => r.index === name);
+    line(time, pts.map(r => log(r.docs)), pts.map(r => r.ms_per_query), CLS[i]);
+  });
+  keys(document.getElementById("ann-time"), indexes.map((name, i) => [name, CLS[i]]));
+  const trade = frame(document.getElementById("ann-tradeoff"), {
+    x: { min: 0, max: Math.ceil(maxMs), ticks: ticks(0, Math.ceil(maxMs), Math.ceil(maxMs) / 4), fmt: v => v + " ms" },
+    y: { min: 0.7, max: 1.0, ticks: ticks(0.7, 1.0, 0.1), fmt: pct }, xlabel: "ms per query" });
+  sizes.forEach((size, i) => {
+    const pts = rows.filter(r => r.docs === size).sort((a, b) => a.ms_per_query - b.ms_per_query);
+    line(trade, pts.map(r => r.ms_per_query), pts.map(r => r.overlap), CLS[i]);
+    pts.forEach(r => el("circle", { cx: trade.X(r.ms_per_query), cy: trade.Y(r.overlap), r: 3.5, class: CLS[i] }, trade.svg));
+  });
+  keys(document.getElementById("ann-tradeoff"), sizes.map((size, i) => [`${size.toLocaleString()} docs`, CLS[i]]));
+}
+
+function drawFinetune() {
+  const { gains, rows, false_negative_rate } = DATA.finetune;
+  const lo = Math.floor(Math.min(...gains.map(g => g.low)) * 100) / 100;
+  const hi = Math.ceil(Math.max(...gains.map(g => g.high)) * 100) / 100;
+  const h = 40 + gains.length * 50;
+  const f = frame(document.getElementById("ft-gain"), { h, x: { min: lo, max: hi, ticks: ticks(lo, hi, 0.01), fmt: v => (v > 0 ? "+" : "") + v.toFixed(2) },
+    y: { min: 0, max: gains.length, ticks: [] } });
+  el("line", { x1: f.X(0), x2: f.X(0), y1: f.m.t, y2: f.h - f.m.b, class: "ref" }, f.svg);
+  label(f, f.X(0) + 4, f.h - f.m.b - 4, "no change", "start");
+  gains.forEach((g, i) => {
+    const yy = f.Y(gains.length - i - 0.5);
+    const cls = g.metric === "ndcg@10" ? "s1" : "s2";
+    el("line", { x1: f.X(g.low), x2: f.X(g.high), y1: yy, y2: yy, class: cls, "stroke-width": 3 }, f.svg);
+    el("circle", { cx: f.X(g.estimate), cy: yy, r: 5, class: cls }, f.svg);
+    label(f, f.X(g.low), yy - 10, `${g.setting}: ${g.metric === "ndcg@10" ? "NDCG@10" : "Recall@100"}`, "start");
+  });
+  document.getElementById("ft-table").innerHTML = `<tr><th>Run</th><th>NDCG@10</th><th>Recall@100</th><th>MRR</th></tr>` +
+    rows.map(r => `<tr><td>${r.setting}</td><td class="mono">${f4(r["ndcg@10"])}</td><td class="mono">${f4(r["recall@100"])}</td>` +
+      `<td class="mono">${f4(r.mrr)}</td></tr>`).join("");
+  document.getElementById("ft-note").textContent =
+    `In batches of 32 train-query pairs, ${Math.round(false_negative_rate * 100)}% of questions have a labeled-relevant document among their negatives.`;
+}
+
+function drawDims() {
+  const rows = DATA.dims.rows;
+  const log2 = Math.log2;
+  const f = frame(document.getElementById("dims-chart"), { w: 880, h: 300,
+    x: { min: log2(32) - 0.2, max: log2(768) + 0.2, ticks: [32, 64, 128, 256, 384, 768].map(log2), fmt: v => Math.round(2 ** v) },
+    y: { min: 0.1, max: 0.35, ticks: ticks(0.1, 0.35, 0.05), fmt: f2 }, xlabel: "dimensions (log scale)", ylabel: "NDCG@10" });
+  [["MiniLM", "svd", "s0"], ["MiniLM", "truncate", "s0"], ["mpnet", "svd", "s1"], ["mpnet", "truncate", "s1"],
+   ["MiniLM", "pca", "s2"], ["mpnet", "pca", "s3"]].forEach(([model, method, cls]) => {
+    const full = rows.find(r => r.model === model && r.method === "full");
+    const pts = rows.filter(r => r.model === model && r.method === method);
+    if (method !== "pca") pts.push(full);  // PCA has its own full-size point: centering alone moves it
+    const path = line(f, pts.map(r => log2(r.dims)), pts.map(r => r["ndcg@10"]), cls);
+    if (method === "truncate") path.setAttribute("stroke-dasharray", "5 4");
+    if (method === "pca") path.setAttribute("stroke-dasharray", "2 3");
+  });
+  keys(document.getElementById("dims-chart"), [["MiniLM, SVD", "s0"], ["MiniLM, cut", "s0", true], ["MiniLM, PCA", "s2", true],
+                                               ["mpnet, SVD", "s1"], ["mpnet, cut", "s1", true], ["mpnet, PCA", "s3", true]]);
+  rows.filter(r => r.method === "full").forEach(r => {
+    const cls = r.model === "MiniLM" ? "s0" : "s1";
+    el("circle", { cx: f.X(log2(r.dims)), cy: f.Y(r["ndcg@10"]), r: 5, class: cls }, f.svg);
+    label(f, f.X(log2(r.dims)) - 8, f.Y(r["ndcg@10"]) - 10, `${r.model} full ${f4(r["ndcg@10"])}`, "end", cls);
+  });
+}
+
+function drawChunks() {
+  const { rows } = DATA.chunks;
+  const maxReturned = Math.ceil(Math.max(...rows.map(r => r.returned)) / 10) * 10;
+  const f = frame(document.getElementById("chunk-chart"), { w: 880, h: 300,
+    x: { min: 0, max: maxReturned, ticks: ticks(0, maxReturned, 10), fmt: v => Math.round(v) },
+    y: { min: 0, max: 0.6, ticks: ticks(0, 0.6, 0.1), fmt: pct }, xlabel: "sentences returned per question (cost)", ylabel: "right document found" });
+  const base = rows[0].hit;
+  rows.forEach((r, i) => {
+    if (r.low !== null) {  // the paired CI of the gap to the baseline, drawn around this strategy's hit rate
+      el("line", { x1: f.X(r.returned), x2: f.X(r.returned), y1: f.Y(base + r.low), y2: f.Y(base + r.high), class: CLS[i], "stroke-width": 3 }, f.svg);
+    }
+    el("circle", { cx: f.X(r.returned), cy: f.Y(r.hit), r: 6, class: CLS[i] }, f.svg);
+  });
+  el("line", { x1: f.X(0), x2: f.X(maxReturned), y1: f.Y(base), y2: f.Y(base), class: "ref" }, f.svg);
+  keys(document.getElementById("chunk-chart"), rows.map((r, i) => [r.low === null
+    ? `${r.strategy}: ${pct(r.hit)} found, ${r.returned.toFixed(0)} sentences (baseline, dashed line)`
+    : `${r.strategy}: ${pct(r.hit)} found (${r.diff >= 0 ? "+" : ""}${(100 * r.diff).toFixed(0)} pts, CI ${(100 * r.low).toFixed(0)} to ${(100 * r.high).toFixed(0)}), ${r.returned.toFixed(0)} sentences`, CLS[i]]));
+}
+
 if (!DATA) {
   document.querySelector("main").insertAdjacentHTML("beforeend",
     "<p>No chart data. Run <code>uv run python scripts/build_views.py</code> and open <code>docs/views/index.html</code>.</p>");
+} else {
+  drawPooling(); drawAnn(); drawFinetune(); drawDims(); drawChunks();
 }
 </script>

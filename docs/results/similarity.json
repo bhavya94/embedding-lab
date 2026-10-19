@@ -1,0 +1,17 @@
+{
+ "model": "sentence-transformers/all-MiniLM-L6-v2",
+ "rows": [
+  {
+   "setting": "cosine similarity",
+   "ndcg@10": 0.3186323138836697,
+   "recall@100": 0.3148117327244191,
+   "mrr": 0.5157522451385718
+  },
+  {
+   "setting": "dot similarity",
+   "ndcg@10": 0.28800763034959537,
+   "recall@100": 0.2977923397665052,
+   "mrr": 0.4904522364047473
+  }
+ ]
+}
