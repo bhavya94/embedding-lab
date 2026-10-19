@@ -178,7 +178,8 @@ A package never imports a package listed after it, and only `cli.py` prints. `te
 
 ## Limits
 - **One dataset.** NFCorpus is medical and small. Gains and losses here may not carry to other domains.
-- **One epoch, one seed.** The fine-tune results come from one run each; another seed would move them a little.
+- **One epoch, three seeds, 323 questions.** That is enough to rule out large fine-tuning effects, not small
+  ones: the intervals are 0.01 to 0.03 wide.
 - **Synthetic padding.** The ANN scaling rows pad the corpus with random vectors, not real documents.
 - **Synthetic long documents.** The chunking test stitches unrelated abstracts together, so its boundaries are
   cleaner than in real long documents.
