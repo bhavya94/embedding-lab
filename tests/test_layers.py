@@ -6,6 +6,7 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "src" / "embedding_lab"
 BELOW = {
     "data": set(),
+    "encode": set(),
     "retrieval": {"data"},
 }
 
