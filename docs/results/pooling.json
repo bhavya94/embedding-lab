@@ -1,0 +1,17 @@
+{
+ "model": "sentence-transformers/all-MiniLM-L6-v2",
+ "rows": [
+  {
+   "setting": "mean pooling",
+   "ndcg@10": 0.3186323138836697,
+   "recall@100": 0.3148117327244191,
+   "mrr": 0.5157522451385718
+  },
+  {
+   "setting": "cls pooling",
+   "ndcg@10": 0.29379822349675944,
+   "recall@100": 0.28897510901763723,
+   "mrr": 0.47570077444483955
+  }
+ ]
+}

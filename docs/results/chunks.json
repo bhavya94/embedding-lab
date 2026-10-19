@@ -1,0 +1,47 @@
+{
+ "documents": 100,
+ "sentences_per_doc": 110.5,
+ "k": 3,
+ "rows": [
+  {
+   "strategy": "fixed, 8 sentences",
+   "chunks": 1424,
+   "hit": 0.31,
+   "diff": null,
+   "low": null,
+   "high": null,
+   "covered": 0.22388141098667413,
+   "returned": 23.0
+  },
+  {
+   "strategy": "fixed, 32 sentences",
+   "chunks": 394,
+   "hit": 0.16,
+   "diff": -0.15,
+   "low": -0.23,
+   "high": -0.08,
+   "covered": 0.11280309967809968,
+   "returned": 80.93
+  },
+  {
+   "strategy": "sentence window +-3",
+   "chunks": 11050,
+   "hit": 0.39,
+   "diff": 0.08,
+   "low": 0.0,
+   "high": 0.16,
+   "covered": 0.2453000391421444,
+   "returned": 20.5
+  },
+  {
+   "strategy": "auto-merge 4 -> 16",
+   "chunks": 2799,
+   "hit": 0.38,
+   "diff": 0.07,
+   "low": 0.01,
+   "high": 0.14,
+   "covered": 0.2200053104789947,
+   "returned": 14.39
+  }
+ ]
+}
