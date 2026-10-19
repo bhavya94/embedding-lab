@@ -9,6 +9,7 @@ import numpy as np
 from embedding_lab.data.nfcorpus import NFCorpus, Relevance
 from embedding_lab.encode.cache import EmbeddingCache
 from embedding_lab.encode.encoder import MINILM, Encoder
+from embedding_lab.retrieval.ann import FlatIndex, HNSWIndex, overlap_at_k, timed
 from embedding_lab.retrieval.metrics import Ranked, mrr, ndcg_at_k, recall_at_k
 from embedding_lab.retrieval.search import ExactSearch
 
@@ -74,6 +75,42 @@ def _similarity(args: argparse.Namespace) -> None:
     _save(args, "similarity", {"model": args.model, "rows": rows})
 
 
+def _ann(args: argparse.Namespace) -> None:
+    corpus, queries, relevance = NFCorpus().load()
+    encoder = Encoder(normalize=True)
+    cache = EmbeddingCache()
+    real = cache.encode(encoder, "nfcorpus-corpus", corpus.passages())
+    query_vectors = cache.encode(encoder, "nfcorpus-queries", queries.texts)
+    rng = np.random.default_rng(args.seed)
+    print(f"exact (flat) vs HNSW, {len(queries)} real queries, top 10; past {len(real)} docs the corpus is padded "
+          "with random unit vectors; one CPU thread")
+    print(f"  {'docs':>7} {'index':<14} {'build s':>8} {'ms/query':>9} {'overlap with exact':>19} {'NDCG@10':>8}")
+    results = []
+    for size in args.sizes:
+        padding = rng.normal(size=(max(size - len(real), 0), real.shape[1])).astype(np.float32)
+        padding /= np.linalg.norm(padding, axis=1, keepdims=True)
+        docs = np.concatenate([real, padding])[:size]
+        doc_ids = (corpus.ids + [f"random-{i}" for i in range(len(padding))])[:size]
+        flat, hnsw = FlatIndex(doc_ids, docs), HNSWIndex(doc_ids, docs)
+        _, flat_build = timed(flat.build)
+        _, hnsw_build = timed(hnsw.build)
+        exact, seconds = timed(lambda: flat.search(queries.ids, query_vectors, 10), warm_up=True)
+        rows = [("flat (exact)", flat_build, exact, seconds)]
+        for ef in args.ef_search:  # one graph per size; ef only changes the search
+            hnsw.set_ef_search(ef)
+            ranked, seconds = timed(lambda: hnsw.search(queries.ids, query_vectors, 10), warm_up=True)
+            rows.append((f"HNSW ef={ef}", hnsw_build, ranked, seconds))
+        for label, build, ranked, seconds in rows:
+            ndcg = float(np.nanmean(ndcg_at_k(ranked, relevance, 10))) if size == len(real) else None
+            results.append({"docs": size, "index": label, "build_s": build,
+                            "ms_per_query": 1000 * seconds / len(queries),
+                            "overlap": float(np.mean(overlap_at_k(ranked, exact, 10))), "ndcg@10": ndcg})
+            shown = f"{ndcg:>8.4f}" if ndcg is not None else f"{'-':>8}"
+            print(f"  {size:>7} {label:<14} {build:>8.2f} {results[-1]['ms_per_query']:>9.3f} "
+                  f"{results[-1]['overlap']:>19.3f} {shown}")
+    _save(args, "ann", {"real_docs": len(real), "rows": results})
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="el", description=__doc__)
     parser.add_argument("--results-dir", type=Path, help="also save each command's numbers here as JSON")
@@ -90,6 +127,12 @@ def main(argv: list[str] | None = None) -> None:
     similarity = commands.add_parser("similarity", help="cosine vs dot product on the same vectors")
     similarity.add_argument("--model", default=MINILM)
     similarity.set_defaults(run=_similarity)
+
+    ann = commands.add_parser("ann", help="FAISS HNSW vs exact search: latency and recall as the corpus grows")
+    ann.add_argument("--sizes", type=int, nargs="+", default=[3_633, 50_000, 200_000])
+    ann.add_argument("--ef-search", type=int, nargs="+", default=[16, 64, 256])
+    ann.add_argument("--seed", type=int, default=0)
+    ann.set_defaults(run=_ann)
 
     args = parser.parse_args(argv)
     args.run(args)
